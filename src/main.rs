@@ -32,7 +32,7 @@ fn main() -> Result<()> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-enum RecordingState {
+enum RecordingStatus {
     IDLE,
     STOPPING,
     RUNNING,
@@ -45,7 +45,7 @@ struct UnrecordApp {
     source_file: Option<PathBuf>,
     output_dir: Option<PathBuf>,
     recording_round: Arc<AtomicUsize>,
-    recording_state: Arc<RwLock<RecordingState>>,
+    recording_status: Arc<RwLock<RecordingStatus>>,
 }
 
 impl UnrecordApp {
@@ -63,7 +63,7 @@ impl UnrecordApp {
             source_file: None,
             output_dir: None,
             recording_round: Arc::new(AtomicUsize::new(0)),
-            recording_state: Arc::new(RwLock::new(RecordingState::IDLE)),
+            recording_status: Arc::new(RwLock::new(RecordingStatus::IDLE)),
         })
     }
 }
@@ -158,20 +158,20 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
         ui.horizontal(|ui| {
             align_right_center(ui, |ui| {
                 let recording_round = app.recording_round.clone();
-                let recording_state = app.recording_state.clone();
+                let recording_state = app.recording_status.clone();
                 let curr_state = *recording_state.read().unwrap();
                 let curr_round = recording_round.load(Ordering::Relaxed);
-                if curr_state == RecordingState::IDLE || curr_state == RecordingState::FINISHED {
+                if curr_state == RecordingStatus::IDLE || curr_state == RecordingStatus::FINISHED {
                     if app_button_primary(ui, "Start recording").clicked()
                         && let Some(device_id) = app.selected_device.clone()
                         && let Some(source_file) = app.source_file.clone()
                         && let Some(output_dir) = app.output_dir.clone()
                     {
-                        *recording_state.write().unwrap() = RecordingState::RUNNING;
+                        *recording_state.write().unwrap() = RecordingStatus::RUNNING;
                         spawn(move || {
                             for round in 0..10 {
                                 recording_round.store(round, Ordering::Relaxed);
-                                if *recording_state.read().unwrap() != RecordingState::RUNNING {
+                                if *recording_state.read().unwrap() != RecordingStatus::RUNNING {
                                     break;
                                 }
                                 let from_path = if round == 0 {
@@ -185,14 +185,14 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                                 let to_path = output_dir.join(&to_filename);
                                 record_file(device_id, from_path, to_path).ok();
                             }
-                            *recording_state.write().unwrap() = RecordingState::FINISHED;
+                            *recording_state.write().unwrap() = RecordingStatus::FINISHED;
                         });
                     }
-                } else if curr_state == RecordingState::RUNNING {
+                } else if curr_state == RecordingStatus::RUNNING {
                     if app_button_primary(ui, format!("Recording ({curr_round})")).clicked() {
-                        *recording_state.write().unwrap() = RecordingState::STOPPING;
+                        *recording_state.write().unwrap() = RecordingStatus::STOPPING;
                     }
-                } else if curr_state == RecordingState::STOPPING {
+                } else if curr_state == RecordingStatus::STOPPING {
                     app_button_primary(ui, format!("Stop recording ({curr_round})"));
                 }
             });
