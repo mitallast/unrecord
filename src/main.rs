@@ -2,17 +2,18 @@ mod audio;
 mod record;
 mod ui;
 mod wav_file;
+mod waveform;
 
 use crate::audio::CoreAudioDriver;
 use crate::record::RecordTask;
 use crate::ui::{
-    align_right_center, app_button, app_button_danger, app_button_primary, app_card, app_combo,
-    app_style, app_weak_label,
+    align_right_center, app_button, app_button_primary, app_card, app_combo, app_style,
+    app_weak_label, waveform_view,
 };
+use crate::wav_file::read_file;
+use crate::waveform::WaveformShape;
 use anyhow::Result;
 use coreaudio_sys::AudioObjectID;
-use eframe::App;
-use egui_extras::{Column, TableBuilder};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -45,6 +46,7 @@ struct UnrecordApp {
     devices: Vec<(Option<AudioObjectID>, String)>,
     selected_device: Option<AudioObjectID>,
     source_file: Option<PathBuf>,
+    source_waveform: Option<(WaveformShape, WaveformShape)>,
     output_dir: Option<PathBuf>,
     recording_round: Arc<AtomicUsize>,
     recording_status: Arc<RwLock<RecordingStatus>>,
@@ -64,6 +66,7 @@ impl UnrecordApp {
             devices,
             selected_device: None,
             source_file: None,
+            source_waveform: None,
             output_dir: None,
             recording_round: Arc::new(AtomicUsize::new(0)),
             recording_status: Arc::new(RwLock::new(RecordingStatus::IDLE)),
@@ -127,7 +130,15 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                         .add_filter("WAV", &["wav"])
                         .pick_file()
                 {
-                    app.source_file = Some(path)
+                    let (sample_rate, samples) = read_file(&path).unwrap();
+                    let samples_l: Vec<f32> = samples.iter().step_by(2).copied().collect();
+                    let samples_r: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
+                    let waveform_l =
+                        WaveformShape::generate(&samples_l, sample_rate as usize, 2, 2);
+                    let waveform_r =
+                        WaveformShape::generate(&samples_r, sample_rate as usize, 2, 2);
+                    app.source_waveform = Some((waveform_l, waveform_r));
+                    app.source_file = Some(path);
                 }
                 ui.end_row();
 
@@ -147,6 +158,7 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                     .color(ui.visuals().weak_text_color()),
             ));
         }
+
         if let Some(output_dir) = &app.output_dir {
             ui.add(egui::Label::new(
                 egui::RichText::new(output_dir.to_string_lossy().to_string())
@@ -192,7 +204,8 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                                 let to_filename = format!("output_file_{round}.wav");
                                 let to_path = output_dir.join(&to_filename);
 
-                                let task = RecordTask::new(device_id, from_path, to_path).unwrap();
+                                let mut task =
+                                    RecordTask::new(device_id, from_path, to_path).unwrap();
                                 task.record().ok();
                                 tasks.write().unwrap().push(task);
                             }
@@ -219,36 +232,65 @@ fn records_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
         |ui| {
             ui.add_space(4.0);
 
-            let row_h = 31.0;
             let available_h = ui.available_height();
 
-            // TableBuilder: липкий заголовок + скролл в области таблицы
-            TableBuilder::new(ui)
-                .striped(true)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::remainder()) // File
-                .column(Column::initial(260.0)) // Spec
-                .column(Column::initial(96.0)) // Action
-                .column(Column::remainder()) // Result
+            egui::ScrollArea::vertical()
                 .min_scrolled_height(available_h)
-                .header(row_h, |mut header| {
-                    header.col(|ui| app_weak_label(ui, "Source"));
-                    header.col(|ui| app_weak_label(ui, "Destination"));
-                })
-                .body(|mut body| {
-                    let mut remove_idx: Option<usize> = None;
+                .show(ui, |ui| {
+                    if let Some((waveform_l, waveform_r)) = &app.source_waveform
+                        && let Some(path) = app.source_file.clone()
+                    {
+                        waveform_view(
+                            ui,
+                            path.as_os_str().to_string_lossy().to_string(),
+                            waveform_l,
+                            waveform_r,
+                        );
+                    }
 
                     for record in app.tasks.read().unwrap().iter() {
-                        body.row(row_h, |mut row| {
-                            row.col(|ui| {
-                                ui.label(&record.source_path());
-                            });
-                            row.col(|ui| {
-                                ui.label(&record.destination_path());
-                            });
-                        });
+                        if let Some((waveform_l, waveform_r)) = record.output_waveform() {
+                            waveform_view(ui, record.destination_path(), waveform_l, waveform_r);
+
+                            // ui.style_mut().visuals.extreme_bg_color =
+                            //     Color32::from_rgb(66, 122, 162);
+                            // ui.style_mut().visuals.widgets.noninteractive.fg_stroke =
+                            //     Stroke::new(1.0, Color32::WHITE);
+                            //
+                            // let mut cursor = TimeCursor::default();
+                            // Waveform::default()
+                            //     .entry(WaveformItem::new(waveform))
+                            //     .cursor(&mut cursor)
+                            //     .show(ui);
+                        }
                     }
                 });
+
+            // // TableBuilder: липкий заголовок + скролл в области таблицы
+            // TableBuilder::new(ui)
+            //     .striped(true)
+            //     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            //     .column(Column::remainder()) // File
+            //     .column(Column::initial(260.0)) // Spec
+            //     .column(Column::initial(96.0)) // Action
+            //     .column(Column::remainder()) // Result
+            //     .min_scrolled_height(available_h)
+            //     .header(row_h, |mut header| {
+            //         header.col(|ui| app_weak_label(ui, "Source"));
+            //         header.col(|ui| app_weak_label(ui, "Destination"));
+            //     })
+            //     .body(|mut body| {
+            //         for record in app.tasks.read().unwrap().iter() {
+            //             body.row(row_h, |mut row| {
+            //                 row.col(|ui| {
+            //                     ui.label(&record.source_path());
+            //                 });
+            //                 row.col(|ui| {
+            //                     ui.label(&record.destination_path());
+            //                 });
+            //             });
+            //         }
+            //     });
         },
     );
 }

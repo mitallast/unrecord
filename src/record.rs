@@ -5,6 +5,7 @@ use crate::audio::{
 
 use crate::wav_file::{read_file, write_file};
 
+use crate::waveform::WaveformShape;
 use anyhow::{Context, Result};
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::render_callback::data::Interleaved;
@@ -36,6 +37,7 @@ pub struct RecordTask {
     record_duration: Duration,
     test_samples: Vec<f32>,
     input_samples: Arc<Mutex<VecDeque<f32>>>,
+    output_waveform: Option<(WaveformShape, WaveformShape)>,
 }
 
 impl RecordTask {
@@ -78,6 +80,7 @@ impl RecordTask {
             record_duration,
             test_samples,
             input_samples,
+            output_waveform: None,
         })
     }
 
@@ -87,8 +90,11 @@ impl RecordTask {
     pub fn destination_path(&self) -> String {
         self.destination_path.to_str().unwrap().to_string()
     }
+    pub fn output_waveform(&self) -> &Option<(WaveformShape, WaveformShape)> {
+        &self.output_waveform
+    }
 
-    pub fn record(&self) -> Result<()> {
+    pub fn record(&mut self) -> Result<()> {
         let mut io_unit = AudioUnit::new(IOType::HalOutput)?;
         io_unit.enable_io_input()?;
         io_unit.enable_io_output()?;
@@ -198,6 +204,12 @@ impl RecordTask {
         sample_stats(&final_samples);
 
         write_file(&self.destination_path, self.sample_rate, &final_samples)?;
+
+        let samples_l: Vec<f32> = final_samples.iter().step_by(2).copied().collect();
+        let samples_r: Vec<f32> = final_samples.iter().step_by(2).copied().collect();
+        let waveform_l = WaveformShape::generate(&samples_l, self.sample_rate as usize, 2, 2);
+        let waveform_r = WaveformShape::generate(&samples_r, self.sample_rate as usize, 2, 2);
+        self.output_waveform = Some((waveform_l, waveform_r));
 
         Ok(())
     }

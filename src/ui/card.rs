@@ -23,7 +23,6 @@ pub fn app_card(
                 }
             });
             ui.add_space(8.0);
-
             ui.set_min_size(ui.available_size());
             add(ui);
         });
