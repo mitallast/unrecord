@@ -1,4 +1,4 @@
-use anyhow::{Context, anyhow};
+use anyhow::{Context, Result, anyhow};
 use hound::{WavReader, WavSpec, WavWriter};
 use std::path::Path;
 
@@ -8,7 +8,7 @@ fn i8_to_f32(x: i8) -> f32 {
 }
 
 #[inline]
-pub fn i16_to_f32(x: i16) -> f32 {
+fn i16_to_f32(x: i16) -> f32 {
     (x as f32) / 32768.0
 }
 
@@ -22,7 +22,7 @@ fn i32_24bit_to_f32(x: i32) -> f32 {
     (x as f32) / 8_388_608.0 // 2^23
 }
 
-pub fn read_file<P: AsRef<Path>>(path: P) -> anyhow::Result<(f64, Vec<f32>)> {
+pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(f64, Vec<f32>)> {
     let reader = WavReader::open(path).context("Failed to open WAV file")?;
     let spec = reader.spec();
     if spec.channels != 2 {
@@ -65,7 +65,7 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> anyhow::Result<(f64, Vec<f32>)> {
     Ok((spec.sample_rate as f64, samples))
 }
 
-pub fn write_file<P: AsRef<Path>>(path: P, sample_rate: f64, samples: &Vec<f32>) -> anyhow::Result<()> {
+pub fn write_file<P: AsRef<Path>>(path: P, sample_rate: f64, samples: &Vec<f32>) -> Result<()> {
     let spec = WavSpec {
         channels: 2,
         sample_rate: sample_rate as u32,

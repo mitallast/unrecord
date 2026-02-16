@@ -4,13 +4,15 @@ mod ui;
 mod wav_file;
 
 use crate::audio::CoreAudioDriver;
-use crate::record::record_file;
+use crate::record::RecordTask;
 use crate::ui::{
-    align_right_center, app_button, app_button_primary, app_card, app_combo, app_style,
-    app_weak_label,
+    align_right_center, app_button, app_button_danger, app_button_primary, app_card, app_combo,
+    app_style, app_weak_label,
 };
 use anyhow::Result;
 use coreaudio_sys::AudioObjectID;
+use eframe::App;
+use egui_extras::{Column, TableBuilder};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -46,6 +48,7 @@ struct UnrecordApp {
     output_dir: Option<PathBuf>,
     recording_round: Arc<AtomicUsize>,
     recording_status: Arc<RwLock<RecordingStatus>>,
+    tasks: Arc<RwLock<Vec<RecordTask>>>,
 }
 
 impl UnrecordApp {
@@ -64,6 +67,7 @@ impl UnrecordApp {
             output_dir: None,
             recording_round: Arc::new(AtomicUsize::new(0)),
             recording_status: Arc::new(RwLock::new(RecordingStatus::IDLE)),
+            tasks: Arc::new(RwLock::new(Vec::new())),
         })
     }
 }
@@ -94,7 +98,7 @@ impl eframe::App for UnrecordApp {
                     .fill(ctx.style().visuals.panel_fill),
             )
             .show(ctx, |ui| {
-                ui.label("central panel");
+                records_card(ui, self);
             });
     }
 }
@@ -159,6 +163,8 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
             align_right_center(ui, |ui| {
                 let recording_round = app.recording_round.clone();
                 let recording_state = app.recording_status.clone();
+                let tasks = app.tasks.clone();
+
                 let curr_state = *recording_state.read().unwrap();
                 let curr_round = recording_round.load(Ordering::Relaxed);
                 if curr_state == RecordingStatus::IDLE || curr_state == RecordingStatus::FINISHED {
@@ -169,11 +175,13 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                     {
                         *recording_state.write().unwrap() = RecordingStatus::RUNNING;
                         spawn(move || {
+                            tasks.write().unwrap().clear();
+
                             for round in 0..10 {
-                                recording_round.store(round, Ordering::Relaxed);
                                 if *recording_state.read().unwrap() != RecordingStatus::RUNNING {
                                     break;
                                 }
+                                recording_round.store(round, Ordering::Relaxed);
                                 let from_path = if round == 0 {
                                     source_file.clone()
                                 } else {
@@ -183,7 +191,10 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
                                 };
                                 let to_filename = format!("output_file_{round}.wav");
                                 let to_path = output_dir.join(&to_filename);
-                                record_file(device_id, from_path, to_path).ok();
+
+                                let task = RecordTask::new(device_id, from_path, to_path).unwrap();
+                                task.record().ok();
+                                tasks.write().unwrap().push(task);
                             }
                             *recording_state.write().unwrap() = RecordingStatus::FINISHED;
                         });
@@ -198,4 +209,46 @@ fn settings_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
             });
         });
     });
+}
+
+fn records_card(ui: &mut egui::Ui, app: &mut UnrecordApp) {
+    app_card(
+        ui,
+        "Records",
+        Some(format!("{} items", app.tasks.read().unwrap().len())),
+        |ui| {
+            ui.add_space(4.0);
+
+            let row_h = 31.0;
+            let available_h = ui.available_height();
+
+            // TableBuilder: липкий заголовок + скролл в области таблицы
+            TableBuilder::new(ui)
+                .striped(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::remainder()) // File
+                .column(Column::initial(260.0)) // Spec
+                .column(Column::initial(96.0)) // Action
+                .column(Column::remainder()) // Result
+                .min_scrolled_height(available_h)
+                .header(row_h, |mut header| {
+                    header.col(|ui| app_weak_label(ui, "Source"));
+                    header.col(|ui| app_weak_label(ui, "Destination"));
+                })
+                .body(|mut body| {
+                    let mut remove_idx: Option<usize> = None;
+
+                    for record in app.tasks.read().unwrap().iter() {
+                        body.row(row_h, |mut row| {
+                            row.col(|ui| {
+                                ui.label(&record.source_path());
+                            });
+                            row.col(|ui| {
+                                ui.label(&record.destination_path());
+                            });
+                        });
+                    }
+                });
+        },
+    );
 }
