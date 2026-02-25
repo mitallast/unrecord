@@ -1,11 +1,13 @@
 use crate::audio::read_file;
 
+use crate::ui::TrackInfoItem;
 use anyhow::Result;
 use gpui::SharedString;
 use hound::{SampleFormat, WavSpec};
 use std::path::Path;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct SessionTrack {
     path: SharedString,
     filename: SharedString,
@@ -32,6 +34,23 @@ impl SessionTrack {
             spec,
             samples: Arc::new(samples),
         })
+    }
+
+    pub fn info(&self) -> Vec<TrackInfoItem> {
+        vec![
+            TrackInfoItem::new("Filename", self.filename.to_string()),
+            TrackInfoItem::new("Channels", format!("{}", self.channels())),
+            TrackInfoItem::new("Sample rate", format!("{}", self.sample_rate())),
+            TrackInfoItem::new("Bit Depth", format!("{}-bit PCM", self.bits_per_sample())),
+            TrackInfoItem::new("Bitrate", format!("{} kbps", self.bitrate_kbps())),
+            TrackInfoItem::new("Sample count", format!("{}", self.sample_count())),
+            TrackInfoItem::new("Duration", self.duration_label()),
+            TrackInfoItem::new("Peak", format!("{:.2} dBFS", self.peak_dbfs())),
+            TrackInfoItem::new("RMS", format!("{:.2} dBFS", self.rms_dbfs())),
+            TrackInfoItem::new("LUFS int", format!("{:.2} dBFS", self.integrated_lufs())),
+            TrackInfoItem::new("Crest Factor", format!("{:.2} dB", self.crest_factor_db())),
+            TrackInfoItem::new("DC offset", format!("{:.2}%", self.dc_offset_percent())),
+        ]
     }
 
     pub fn path(&self) -> SharedString {

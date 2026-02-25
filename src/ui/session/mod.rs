@@ -4,8 +4,10 @@ mod track;
 
 use async_std::channel::Sender;
 use gpui::SharedString;
+
 pub use panel::*;
 pub use state::*;
+pub use track::*;
 
 #[derive(Clone, Debug)]
 pub enum SessionStatus {

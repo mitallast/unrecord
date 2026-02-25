@@ -1,6 +1,6 @@
 use crate::audio::{CoreAudioDevice, CoreAudioDriver, RecordSession};
-use crate::ui::SessionStatus;
 use crate::ui::session::track::SessionTrack;
+use crate::ui::{SessionStatus, TrackInfoState};
 use anyhow::{Result, anyhow};
 use async_std::channel::unbounded;
 use async_std::prelude::FutureExt;
@@ -27,12 +27,17 @@ pub struct SessionState {
 
     pub(super) session_status: SessionStatus,
     pub session_tracks: Vec<SessionTrack>,
+    info_state: Entity<TrackInfoState>,
 
     _subscriptions: Vec<Subscription>,
 }
 
 impl SessionState {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Result<Self> {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        info_state: &Entity<TrackInfoState>,
+    ) -> Result<Self> {
         let driver = CoreAudioDriver;
 
         let devices: Vec<DeviceSelectItem> = driver
@@ -122,6 +127,7 @@ impl SessionState {
         Ok(Self {
             select_device_state,
             iteration_count_state,
+            info_state: info_state.clone(),
             source_path_state: source_file_state,
             destination_path_state: destination_dir_state,
             current_device_id: default.map(|p| p.1),
@@ -152,14 +158,20 @@ impl SessionState {
         };
         let select_file_prompt = cx.prompt_for_paths(options);
 
-        cx.spawn_in(window, async move |view, window| {
+        cx.spawn_in(window, async move |state, window| {
             let paths = select_file_prompt.await??.ok_or(anyhow!("no files"))?;
             let source_file = paths.first().ok_or(anyhow!("no file"))?;
-            view.update_in(window, |view, window, cx| {
-                view.current_source_path = Some(source_file.clone());
+            state.update_in(window, |state, window, cx| {
+                state.current_source_path = Some(source_file.clone());
                 cx.notify();
-                cx.update_entity(&view.source_path_state, |view, cx| {
+                cx.update_entity(&state.source_path_state, |view, cx| {
                     view.set_value(source_file.to_string_lossy().to_string(), window, cx);
+                });
+                cx.update_entity(&state.info_state, |view, _| {
+                    match SessionTrack::new(source_file.clone()) {
+                        Ok(track) => view.set_track(track),
+                        Err(error) => error!("failed to open source track: {}", error),
+                    }
                 });
             })
         })
@@ -251,8 +263,11 @@ impl SessionState {
                         Ok(_) => {
                             info!("successfully finished recording");
                             let track = SessionTrack::new(destination_path)?;
-                            entity.update(cx, |state, _| {
-                                state.session_tracks.push(track);
+                            entity.update(cx, |state, cx| {
+                                state.session_tracks.push(track.clone());
+                                state.info_state.update(cx, |state, cx| {
+                                    state.set_track(track);
+                                });
                             })?;
                         }
                         Err(error) => {

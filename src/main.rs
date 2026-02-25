@@ -1,9 +1,9 @@
 mod audio;
-mod info_panel;
 mod ui;
 
-use crate::info_panel::info_panel;
-use crate::ui::{SessionPanel, SessionState, TimelinePanel, TimelineState};
+use crate::ui::{
+    SessionPanel, SessionState, TimelinePanel, TimelineState, TrackInfoPanel, TrackInfoState,
+};
 
 use anyhow::Result;
 use gpui::{
@@ -66,18 +66,21 @@ fn main() -> Result<()> {
 }
 
 struct UnrecordApp {
-    pub session_state: Entity<SessionState>,
-    pub timeline_state: Entity<TimelineState>,
+    session_state: Entity<SessionState>,
+    timeline_state: Entity<TimelineState>,
+    info_state: Entity<TrackInfoState>,
 }
 
 impl UnrecordApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Result<Self> {
-        let settings = cx.new(|cx| SessionState::new(window, cx).unwrap());
-        let timeline = cx.new(TimelineState::new);
+        let info_state = cx.new(TrackInfoState::new);
+        let session_state = cx.new(|cx| SessionState::new(window, cx, &info_state).unwrap());
+        let timeline_state = cx.new(TimelineState::new);
 
         Ok(Self {
-            session_state: settings,
-            timeline_state: timeline,
+            session_state,
+            timeline_state,
+            info_state,
         })
     }
 }
@@ -102,7 +105,7 @@ impl Render for UnrecordApp {
                     .flex_nowrap()
                     .gap_4()
                     .child(SessionPanel::new(&self.session_state))
-                    .child(info_panel(cx).flex_1()),
+                    .child(TrackInfoPanel::new(&self.info_state)),
             )
             .child(
                 TimelinePanel::new(&self.session_state, &self.timeline_state)
