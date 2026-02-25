@@ -1,5 +1,5 @@
-use anyhow::{Context, Result, anyhow};
-use hound::{WavReader, WavSpec, WavWriter};
+use hound::{Error, Result, WavReader, WavSpec, WavWriter};
+use log::info;
 use std::path::Path;
 
 #[inline]
@@ -23,10 +23,10 @@ fn i32_24bit_to_f32(x: i32) -> f32 {
 }
 
 pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(f64, Vec<f32>)> {
-    let reader = WavReader::open(path).context("Failed to open WAV file")?;
+    let reader = WavReader::open(path)?;
     let spec = reader.spec();
     if spec.channels != 2 {
-        return Err(anyhow!("Expected 2 channels"));
+        return Err(Error::FormatError("expected 2 channels"));
     }
     let samples: Vec<f32> = match spec.sample_format {
         hound::SampleFormat::Float => reader.into_samples::<f32>().map(|s| s.unwrap()).collect(),
@@ -59,7 +59,7 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(f64, Vec<f32>)> {
                     i32_to_f32(sample)
                 })
                 .collect(),
-            _ => return Err(anyhow!("Unsupported sample format")),
+            _ => return Err(Error::FormatError("Unsupported sample format")),
         },
     };
     Ok((spec.sample_rate as f64, samples))
@@ -72,14 +72,13 @@ pub fn write_file<P: AsRef<Path>>(path: P, sample_rate: f64, samples: &Vec<f32>)
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
     };
-    let mut writer = WavWriter::create(path, spec).context(anyhow!("Failed to write WAV file"))?;
-    for sample in samples {
-        writer
-            .write_sample(*sample)
-            .context(anyhow!("Failed to write sample"))?;
-    }
-    writer
-        .finalize()
-        .context(anyhow!("Failed to finalize WAV file"))?;
+    info!("open wav writer");
+    let mut writer = WavWriter::create(path, spec)?;
+    info!("write samples");
+    samples
+        .iter()
+        .for_each(|s| writer.write_sample(*s).unwrap());
+    info!("flush wav file");
+    writer.finalize()?;
     Ok(())
 }

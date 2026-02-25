@@ -1,12 +1,9 @@
 use crate::audio::{
     CoreAudioUnit, estimate_latency_by_peak_in_window_f32_stereo_interleaved_frames,
-    make_impulse_test_f32_stereo_interleaved, sample_stats,
+    make_impulse_test_f32_stereo_interleaved, read_file, sample_stats, write_file,
 };
-
-use crate::wav_file::{read_file, write_file};
-
-use crate::waveform::WaveformShape;
 use anyhow::{Context, Result};
+use async_std::task;
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::render_callback::data::Interleaved;
 use coreaudio::audio_unit::{
@@ -24,33 +21,31 @@ const SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 
 type Args = render_callback::Args<Interleaved<f32>>;
 
-pub struct RecordTask {
-    device_id: AudioObjectID,
-    source_path: PathBuf,
+pub struct RecordSession {
     destination_path: PathBuf,
-
+    io_unit: Option<AudioUnit>,
+    device_id: AudioObjectID,
     sample_rate: f64,
     source_samples: Vec<f32>,
     pre_silence_frames: usize,
     post_silence_frames: usize,
-    output_len: usize,
     record_duration: Duration,
     test_samples: Vec<f32>,
+    output_samples: Arc<Mutex<VecDeque<f32>>>,
     input_samples: Arc<Mutex<VecDeque<f32>>>,
-    output_waveform: Option<(WaveformShape, WaveformShape)>,
+    output_len: usize,
 }
 
-impl RecordTask {
-    pub fn new<F: AsRef<Path>, T: AsRef<Path>>(
+impl RecordSession {
+    fn new_blocking<F: AsRef<Path>, T: AsRef<Path>>(
         device_id: AudioObjectID,
         source_path: F,
         destination_path: T,
     ) -> Result<Self> {
-        let from_path = source_path.as_ref().to_path_buf();
-        let to_path = destination_path.as_ref().to_path_buf();
+        let source_path = source_path.as_ref().to_path_buf();
+        let destination_path = destination_path.as_ref().to_path_buf();
 
-        let (sample_rate, source_samples) = read_file(&from_path)?;
-
+        let (sample_rate, source_samples) = read_file(&source_path)?;
         let pre_silence_frames = (0.25 * sample_rate) as usize;
         let post_silence_frames = (0.75 * sample_rate) as usize;
 
@@ -66,36 +61,33 @@ impl RecordTask {
         let record_duration = output_len as f64 / sample_rate / 2.0 + 1.0;
         let record_duration = Duration::from_secs_f64(record_duration);
 
-        let input_samples = Arc::new(Mutex::new(VecDeque::<f32>::with_capacity(output_len)));
+        let mut output_samples: VecDeque<f32> = VecDeque::with_capacity(output_len);
+        output_samples.extend(test_samples.iter().cloned());
+        output_samples.extend(source_samples.iter().cloned());
+        let output_samples = Arc::new(Mutex::new(output_samples));
+        let input_samples = Arc::new(Mutex::new(VecDeque::with_capacity(output_len)));
 
-        Ok(Self {
+        let io_unit = AudioUnit::new(IOType::HalOutput)?;
+        let mut session = Self {
+            destination_path,
+            io_unit: Some(io_unit),
             device_id,
-            source_path: from_path,
-            destination_path: to_path,
             sample_rate,
             source_samples,
             pre_silence_frames,
             post_silence_frames,
-            output_len,
             record_duration,
             test_samples,
+            output_samples,
             input_samples,
-            output_waveform: None,
-        })
+            output_len,
+        };
+        session.init()?;
+        Ok(session)
     }
 
-    pub fn source_path(&self) -> String {
-        self.source_path.to_str().unwrap().to_string()
-    }
-    pub fn destination_path(&self) -> String {
-        self.destination_path.to_str().unwrap().to_string()
-    }
-    pub fn output_waveform(&self) -> &Option<(WaveformShape, WaveformShape)> {
-        &self.output_waveform
-    }
-
-    pub fn record(&mut self) -> Result<()> {
-        let mut io_unit = AudioUnit::new(IOType::HalOutput)?;
+    fn init(&mut self) -> Result<()> {
+        let io_unit = self.io_unit.as_mut().unwrap();
         io_unit.enable_io_input()?;
         io_unit.enable_io_output()?;
         io_unit.set_device(self.device_id)?;
@@ -142,14 +134,12 @@ impl RecordTask {
         };
 
         io_unit.set_input_stream_format_spec(&in_stream_format)?;
+
         io_unit.set_output_stream_format_spec(&out_stream_format)?;
 
-        let mut output_samples: VecDeque<f32> = VecDeque::with_capacity(self.output_len);
-        output_samples.extend(self.test_samples.iter().cloned());
-        output_samples.extend(self.source_samples.iter().cloned());
+        let output_consumer = self.output_samples.clone();
+        let input_producer = self.input_samples.clone();
 
-        let output_samples = Arc::new(Mutex::new(output_samples));
-        let output_consumer = output_samples.clone();
         io_unit.set_render_callback(move |args: Args| {
             let num_frames = args.num_frames;
             let data: Interleaved<f32> = args.data;
@@ -161,9 +151,6 @@ impl RecordTask {
             Ok(())
         })?;
 
-        // write input to file
-        let input_producer = self.input_samples.clone();
-
         io_unit.set_input_callback(move |args| {
             let num_frames = args.num_frames;
             let data: Interleaved<f32> = args.data;
@@ -174,13 +161,24 @@ impl RecordTask {
             Ok(())
         })?;
 
-        io_unit.start()?;
-        std::thread::sleep(self.record_duration);
+        Ok(())
+    }
+
+    fn start_blocking(&mut self) -> Result<()> {
+        self.io_unit.as_mut().unwrap().start()?;
+        Ok(())
+    }
+
+    fn stop_blocking(&mut self) -> Result<()> {
+        let mut io_unit = self.io_unit.take().context("No io_unit")?;
         io_unit.stop()?;
         drop(io_unit);
 
         let input_samples: Vec<f32> = self.input_samples.lock().unwrap().clone().into();
         info!("input   = {} samples", input_samples.len());
+        if input_samples.len() < self.output_len {
+            return Err(anyhow::anyhow!("Not enough samples"));
+        }
 
         let latency_frames = estimate_latency_by_peak_in_window_f32_stereo_interleaved_frames(
             &input_samples,
@@ -203,14 +201,29 @@ impl RecordTask {
         sample_stats(&self.source_samples);
         sample_stats(&final_samples);
 
+        info!("write result to {:?}", &self.destination_path);
         write_file(&self.destination_path, self.sample_rate, &final_samples)?;
-
-        let samples_l: Vec<f32> = final_samples.iter().step_by(2).copied().collect();
-        let samples_r: Vec<f32> = final_samples.iter().step_by(2).copied().collect();
-        let waveform_l = WaveformShape::generate(&samples_l, self.sample_rate as usize, 2, 2);
-        let waveform_r = WaveformShape::generate(&samples_r, self.sample_rate as usize, 2, 2);
-        self.output_waveform = Some((waveform_l, waveform_r));
-
+        info!("done");
         Ok(())
+    }
+
+    pub async fn new<F: AsRef<Path>, T: AsRef<Path>>(
+        device_id: AudioObjectID,
+        source_path: F,
+        destination_path: T,
+    ) -> Result<Self> {
+        task::block_on(async move { Self::new_blocking(device_id, source_path, destination_path) })
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        task::block_on(async { self.start_blocking() })
+    }
+
+    pub async fn stop(&mut self) -> Result<()> {
+        task::block_on(async { self.stop_blocking() })
+    }
+
+    pub async fn wait(&mut self) {
+        async_std::task::sleep(self.record_duration).await;
     }
 }

@@ -1,10 +1,13 @@
+mod audio_unit;
 mod device;
 mod driver;
-mod unit;
-mod audio_unit;
 mod latency;
+mod session;
+mod wav_file;
 
+pub use audio_unit::*;
 pub use device::*;
 pub use driver::*;
-pub use audio_unit::*;
 pub use latency::*;
+pub use session::*;
+pub use wav_file::*;
