@@ -45,9 +45,9 @@ impl RecordSession {
         let source_path = source_path.as_ref().to_path_buf();
         let destination_path = destination_path.as_ref().to_path_buf();
 
-        let (sample_rate, source_samples) = read_file(&source_path)?;
-        let pre_silence_frames = (0.25 * sample_rate) as usize;
-        let post_silence_frames = (0.75 * sample_rate) as usize;
+        let (spec, source_samples) = read_file(&source_path)?;
+        let pre_silence_frames = (0.25 * spec.sample_rate as f64) as usize;
+        let post_silence_frames = (0.75 * spec.sample_rate as f64) as usize;
 
         let impulse_amp: f32 = 0.75;
         let test_samples = make_impulse_test_f32_stereo_interleaved(
@@ -58,7 +58,7 @@ impl RecordSession {
         );
 
         let output_len = test_samples.len() + source_samples.len();
-        let record_duration = output_len as f64 / sample_rate / 2.0 + 1.0;
+        let record_duration = output_len as f64 / spec.sample_rate as f64 / 2.0 + 1.0;
         let record_duration = Duration::from_secs_f64(record_duration);
 
         let mut output_samples: VecDeque<f32> = VecDeque::with_capacity(output_len);
@@ -72,7 +72,7 @@ impl RecordSession {
             destination_path,
             io_unit: Some(io_unit),
             device_id,
-            sample_rate,
+            sample_rate: spec.sample_rate as f64,
             source_samples,
             pre_silence_frames,
             post_silence_frames,

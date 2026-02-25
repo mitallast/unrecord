@@ -22,7 +22,7 @@ fn i32_24bit_to_f32(x: i32) -> f32 {
     (x as f32) / 8_388_608.0 // 2^23
 }
 
-pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(f64, Vec<f32>)> {
+pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(WavSpec, Vec<f32>)> {
     let reader = WavReader::open(path)?;
     let spec = reader.spec();
     if spec.channels != 2 {
@@ -62,7 +62,7 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> Result<(f64, Vec<f32>)> {
             _ => return Err(Error::FormatError("Unsupported sample format")),
         },
     };
-    Ok((spec.sample_rate as f64, samples))
+    Ok((spec, samples))
 }
 
 pub fn write_file<P: AsRef<Path>>(path: P, sample_rate: f64, samples: &Vec<f32>) -> Result<()> {

@@ -76,14 +76,18 @@ impl TimelineGrid {
                 div()
                     .text_size(rems(0.875))
                     .line_height(rems(1.25))
-                    .child(track.filename.clone()),
+                    .child(track.filename()),
             )
             .child(
                 div()
                     .text_size(rems(0.75))
                     .line_height(rems(1.0))
                     .text_color(gray_400())
-                    .child("-18.1 LUFS / -2.2 dBTP"),
+                    .child(format!(
+                        "{:.2} LUFS / {:.2} dBP",
+                        track.integrated_lufs(),
+                        track.peak_dbfs()
+                    )),
             )
     }
 
@@ -94,7 +98,7 @@ impl TimelineGrid {
             .border_r(px(1.0))
             .border_b(px(1.0))
             .border_color(theme.border)
-            .child(WaveRegion::new(track.samples.clone()))
+            .child(WaveRegion::new(track.samples()))
     }
 }
 
