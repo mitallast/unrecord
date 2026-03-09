@@ -1,14 +1,15 @@
 mod audio;
+mod components;
+mod time;
 mod ui;
 
-use crate::ui::{
-    SessionPanel, SessionState, TimelinePanel, TimelineState, TrackInfoPanel, TrackInfoState,
-};
-
+use crate::components::grid::GridState;
+use crate::time::SampleRate;
+use crate::ui::{ClipInfoState, GridProjectView, SessionPanel, SessionState, TrackInfoPanel};
 use anyhow::Result;
 use gpui::{
-    App, AppContext, Application, Context, Entity, IntoElement, ParentElement, Render, Styled,
-    Window, WindowOptions, div, px, rgb,
+    App, AppContext, Application, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, WindowOptions,
+    div, px, rgb,
 };
 use gpui_component::{ActiveTheme, Root, gray_400};
 use gpui_component_assets::Assets;
@@ -66,21 +67,21 @@ fn main() -> Result<()> {
 }
 
 struct UnrecordApp {
-    session_state: Entity<SessionState>,
-    timeline_state: Entity<TimelineState>,
-    info_state: Entity<TrackInfoState>,
+    session: Entity<SessionState>,
+    info: Entity<ClipInfoState>,
+    grid: Entity<GridState>,
 }
 
 impl UnrecordApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Result<Self> {
-        let info_state = cx.new(TrackInfoState::new);
-        let session_state = cx.new(|cx| SessionState::new(window, cx, &info_state).unwrap());
-        let timeline_state = cx.new(TimelineState::new);
+        let info_state = cx.new(ClipInfoState::new);
+        let grid_state = cx.new(|cx| GridState::new(SampleRate::Hz44100, cx));
+        let session_state = cx.new(|cx| SessionState::new(window, cx, &grid_state, &info_state).unwrap());
 
         Ok(Self {
-            session_state,
-            timeline_state,
-            info_state,
+            session: session_state,
+            info: info_state,
+            grid: grid_state,
         })
     }
 }
@@ -104,14 +105,10 @@ impl Render for UnrecordApp {
                     .flex_col()
                     .flex_nowrap()
                     .gap_4()
-                    .child(SessionPanel::new(&self.session_state))
-                    .child(TrackInfoPanel::new(&self.info_state)),
+                    .child(SessionPanel::new(&self.session))
+                    .child(TrackInfoPanel::new(&self.info)),
             )
-            .child(
-                TimelinePanel::new(&self.session_state, &self.timeline_state)
-                    .flex_1()
-                    .h_full(),
-            )
+            .child(GridProjectView::new(&self.grid))
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))

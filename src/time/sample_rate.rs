@@ -1,3 +1,5 @@
+use std::ops::Mul;
+
 #[allow(dead_code)]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -63,6 +65,12 @@ impl Into<u64> for SampleRate {
     }
 }
 
+impl Into<usize> for SampleRate {
+    fn into(self) -> usize {
+        Into::<u32>::into(self) as usize
+    }
+}
+
 impl Into<f32> for SampleRate {
     fn into(self) -> f32 {
         match self {
@@ -98,5 +106,29 @@ impl Into<f64> for SampleRate {
             SampleRate::Hz352800 => 352800f64,
             SampleRate::Hz384000 => 384000f64,
         }
+    }
+}
+
+impl Mul<usize> for SampleRate {
+    type Output = usize;
+
+    fn mul(self, rhs: usize) -> Self::Output {
+        Into::<usize>::into(self) * rhs
+    }
+}
+
+impl Mul<f32> for SampleRate {
+    type Output = f32;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Into::<f32>::into(self) * rhs
+    }
+}
+
+impl Mul<f64> for SampleRate {
+    type Output = f64;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Into::<f64>::into(self) * rhs
     }
 }

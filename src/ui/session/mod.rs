@@ -1,35 +1,33 @@
 mod panel;
 mod state;
-mod track;
 
 use async_std::channel::Sender;
 use gpui::SharedString;
 
 pub use panel::*;
 pub use state::*;
-pub use track::*;
 
 #[derive(Clone, Debug)]
 pub enum SessionStatus {
     IDLE,
     RUNNING(Sender<()>),
     FINISHED,
-    FAILED(SharedString),
+    FAILED,
 }
 
 const IDLE_TITLE: SharedString = SharedString::new_static("Start");
 const RUNNING_TITLE: SharedString = SharedString::new_static("Stop");
-const STOPPING_TITLE: SharedString = SharedString::new_static("Stoping");
 const FINISHED_TITLE: SharedString = SharedString::new_static("Finished");
 const FAILED_TITLE: SharedString = SharedString::new_static("Failed");
 
+#[allow(dead_code)]
 impl SessionStatus {
     pub fn is_stopped(&self) -> bool {
         match self {
             SessionStatus::IDLE => true,
             SessionStatus::RUNNING(_) => false,
             SessionStatus::FINISHED => true,
-            SessionStatus::FAILED(_) => true,
+            SessionStatus::FAILED => true,
         }
     }
 
@@ -38,7 +36,7 @@ impl SessionStatus {
             SessionStatus::IDLE => false,
             SessionStatus::RUNNING(_) => true,
             SessionStatus::FINISHED => false,
-            SessionStatus::FAILED(_) => false,
+            SessionStatus::FAILED => false,
         }
     }
 
@@ -47,7 +45,7 @@ impl SessionStatus {
             SessionStatus::IDLE => IDLE_TITLE,
             SessionStatus::RUNNING(_) => RUNNING_TITLE,
             SessionStatus::FINISHED => FINISHED_TITLE,
-            SessionStatus::FAILED(_) => FINISHED_TITLE,
+            SessionStatus::FAILED => FAILED_TITLE,
         }
     }
 }

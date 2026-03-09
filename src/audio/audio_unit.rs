@@ -11,6 +11,7 @@ use objc2_audio_toolbox::{
 use objc2_core_audio::{AudioObjectID, kAudioDevicePropertyBufferFrameSize};
 use objc2_core_audio_types::AudioStreamBasicDescription;
 
+#[allow(dead_code)]
 pub trait CoreAudioUnit {
     fn set_device(&mut self, device_id: AudioObjectID) -> Result<()>;
 
@@ -32,6 +33,7 @@ pub trait CoreAudioUnit {
     fn set_output_stream_format_wav(&mut self, spec: &WavSpec) -> Result<()>;
 }
 
+#[allow(dead_code)]
 fn to_asbd(spec: &WavSpec) -> Result<AudioStreamBasicDescription> {
     let format_flag = match spec.sample_format {
         hound::SampleFormat::Float => LinearPcmFlags::IS_FLOAT,

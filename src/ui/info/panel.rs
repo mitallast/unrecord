@@ -1,4 +1,4 @@
-use crate::ui::{TrackInfoState, app_panel, app_panel_title};
+use crate::ui::{ClipInfoState, app_panel, app_panel_title};
 use gpui::{
     App, Element, Entity, IntoElement, ListAlignment, ListState, ParentElement, RenderOnce,
     StyleRefinement, Styled, Window, div, list, px, rems,
@@ -8,12 +8,12 @@ use gpui_component::{StyledExt, gray_400};
 
 #[derive(IntoElement)]
 pub struct TrackInfoPanel {
-    state: Entity<TrackInfoState>,
+    state: Entity<ClipInfoState>,
     style: StyleRefinement,
 }
 
 impl TrackInfoPanel {
-    pub fn new(state: &Entity<TrackInfoState>) -> Self {
+    pub fn new(state: &Entity<ClipInfoState>) -> Self {
         Self {
             state: state.clone(),
             style: StyleRefinement::default(),

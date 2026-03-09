@@ -28,6 +28,7 @@ macro_rules! try_status_or_return {
     };
 }
 
+#[allow(dead_code)]
 impl CoreAudioDevice {
     pub fn from_id(device_id: AudioObjectID) -> Self {
         Self { device_id }

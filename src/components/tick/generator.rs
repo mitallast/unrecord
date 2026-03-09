@@ -1,16 +1,17 @@
-use crate::time::{Duration, GridTick, GridTickType, SampleRate, TimeCode};
-use gpui::Pixels;
-use log::info;
+use crate::components::grid::GridViewportHandle;
+use crate::components::tick::{GridTick, GridTickType};
+use crate::time::Duration;
+use gpui::{Pixels, px};
 
+#[derive(Clone)]
 pub struct GridTickGenerator {
-    generators: Vec<SpecGridTickGenerator>,
+    generators: Vec<TimeSpecGridGenerator>,
 }
 
 impl GridTickGenerator {
-    pub fn new(sample_rate: SampleRate, min_primary_width: Pixels) -> Self {
-        let generator = move |s: Duration, p: Duration| -> SpecGridTickGenerator {
-            SpecGridTickGenerator {
-                sample_rate,
+    pub fn new(min_primary_width: Pixels) -> Self {
+        let generator = move |s: Duration, p: Duration| -> TimeSpecGridGenerator {
+            TimeSpecGridGenerator {
                 min_primary_width,
                 secondary_duration: s,
                 primary_duration: p,
@@ -57,99 +58,66 @@ impl GridTickGenerator {
         }
     }
 
-    pub fn generate(
-        &self,
-        frames_per_px: f32,
-        start_frame: usize,
-        viewport_width: Pixels,
-    ) -> Vec<GridTick> {
+    pub fn generate<V: GridViewportHandle>(&self, viewport: &V) -> Vec<GridTick> {
         for generator in &self.generators {
-            if generator.supports(frames_per_px) {
-                return generator.generate(frames_per_px, start_frame, viewport_width);
+            if generator.supports(viewport) {
+                return generator.generate(viewport);
             }
         }
         Vec::new()
     }
 }
 
-struct SpecGridTickGenerator {
-    sample_rate: SampleRate,
+#[derive(Clone)]
+struct TimeSpecGridGenerator {
     primary_duration: Duration,
     secondary_duration: Duration,
     min_primary_width: Pixels,
 }
 
-impl SpecGridTickGenerator {
-    fn supports(&self, frames_per_px: f32) -> bool {
-        let sample_rate: f32 = self.sample_rate.into();
-        let seconds_per_px = frames_per_px / sample_rate;
-        let primary_width = self.to_pixels(seconds_per_px, self.primary_duration);
-        primary_width >= self.min_primary_width
+impl TimeSpecGridGenerator {
+    fn supports<V: GridViewportHandle>(&self, viewport: &V) -> bool {
+        viewport.duration_to_track_offset(self.primary_duration) >= self.min_primary_width
     }
 
-    fn generate(
-        &self,
-        frames_per_px: f32,
-        start_frame: usize,
-        viewport_width: Pixels,
-    ) -> Vec<GridTick> {
-        info!(
-            "generate {:?} {:?}",
-            self.primary_duration, self.secondary_duration
-        );
-
+    fn generate<V: GridViewportHandle>(&self, viewport: &V) -> Vec<GridTick> {
         let mut ticks: Vec<GridTick> = Vec::new();
 
-        let sample_rate: f32 = self.sample_rate.into();
-        let seconds_per_px = frames_per_px / sample_rate;
+        // padding produces time truncation, so it's required to additional conversion
+        let start_time = viewport.scroll_offset_to_time(px(0.0));
+        let start_px = viewport.time_to_scroll_offset(start_time);
+        let end_px = start_px + viewport.viewport_size().width;
 
-        let start_time = self.frames_to_time(start_frame);
         let mut primary = start_time.truncate(self.primary_duration);
         loop {
-            if primary >= start_time {
-                let offset_x = self.to_pixels(seconds_per_px, primary - start_time);
-                if offset_x >= viewport_width {
-                    break;
-                }
-                ticks.push(GridTick {
-                    tick_type: GridTickType::PRIMARY,
-                    time: primary,
-                    offset_x,
-                    label: Some(primary.to_string().into()),
-                })
+            let offset_x = viewport.time_to_scroll_offset(primary);
+            if offset_x >= end_px {
+                break;
             }
+            let label = Some(primary.to_string().into());
+            ticks.push(GridTick {
+                tick_type: GridTickType::PRIMARY,
+                offset_x,
+                label,
+            });
 
             let next_primary = primary + self.primary_duration;
             let mut secondary = primary + self.secondary_duration;
             while secondary < next_primary {
-                if secondary >= start_time {
-                    let offset_x = self.to_pixels(seconds_per_px, secondary - start_time);
-                    if offset_x >= viewport_width {
-                        break;
-                    }
-                    ticks.push(GridTick {
-                        tick_type: GridTickType::SECONDARY,
-                        time: secondary,
-                        offset_x,
-                        label: None,
-                    })
+                let offset_x = viewport.time_to_scroll_offset(secondary);
+                if offset_x >= end_px {
+                    break;
                 }
+                ticks.push(GridTick {
+                    tick_type: GridTickType::SECONDARY,
+                    offset_x,
+                    label: None,
+                });
                 secondary += self.secondary_duration;
             }
             primary = next_primary;
         }
 
         ticks
-    }
-
-    fn frames_to_time(&self, frame: usize) -> TimeCode {
-        let sample_rate: u64 = self.sample_rate.into();
-        let millis = (frame as u64 * 1000) / sample_rate;
-        TimeCode::from_millis(millis)
-    }
-
-    fn to_pixels(&self, seconds_per_px: f32, duration: Duration) -> Pixels {
-        let seconds: f32 = duration.to_millis() as f32 / 1000f32;
-        Pixels::from(seconds / seconds_per_px)
     }
 }

@@ -1,12 +1,12 @@
 use crate::audio::{CoreAudioDevice, CoreAudioDriver, RecordSession};
-use crate::ui::session::track::SessionTrack;
-use crate::ui::{SessionStatus, TrackInfoState};
+use crate::components::grid::GridState;
+use crate::components::track::Track;
+use crate::components::waveform::WaveClip;
+use crate::ui::{ClipInfoState, SessionStatus};
 use anyhow::{Result, anyhow};
 use async_std::channel::unbounded;
 use async_std::prelude::FutureExt;
-use gpui::{
-    AppContext, ClickEvent, Context, Entity, PathPromptOptions, SharedString, Subscription, Window,
-};
+use gpui::{AppContext, ClickEvent, Context, Entity, PathPromptOptions, SharedString, Subscription, Window};
 use gpui_component::IndexPath;
 use gpui_component::input::{InputEvent, InputState, NumberInputEvent, StepAction};
 use gpui_component::select::{SelectEvent, SelectItem, SelectState};
@@ -19,15 +19,14 @@ pub struct SessionState {
     pub(super) iteration_count_state: Entity<InputState>,
     pub(super) source_path_state: Entity<InputState>,
     pub(super) destination_path_state: Entity<InputState>,
+    grid_state: Entity<GridState>,
+    info_state: Entity<ClipInfoState>,
 
     current_device_id: Option<AudioObjectID>,
     pub(super) current_source_path: Option<PathBuf>,
     pub(super) current_destination_path: Option<PathBuf>,
     current_iteration_count: Option<u32>,
-
     pub(super) session_status: SessionStatus,
-    pub session_tracks: Vec<SessionTrack>,
-    info_state: Entity<TrackInfoState>,
 
     _subscriptions: Vec<Subscription>,
 }
@@ -36,7 +35,8 @@ impl SessionState {
     pub fn new(
         window: &mut Window,
         cx: &mut Context<Self>,
-        info_state: &Entity<TrackInfoState>,
+        grid_state: &Entity<GridState>,
+        info_state: &Entity<ClipInfoState>,
     ) -> Result<Self> {
         let driver = CoreAudioDriver;
 
@@ -54,17 +54,15 @@ impl SessionState {
             }
         });
 
-        let select_device_state =
-            cx.new(|cx| SelectState::new(devices, default.map(|f| f.0), window, cx));
+        let select_device_state = cx.new(|cx| SelectState::new(devices, default.map(|f| f.0), window, cx));
 
-        let select_device_sub =
-            cx.subscribe(&select_device_state, |this, _, event, cx| match event {
-                SelectEvent::Confirm(value) => {
-                    info!("device selected: {:?}", value);
-                    this.current_device_id = value.clone();
-                    cx.notify();
-                }
-            });
+        let select_device_sub = cx.subscribe(&select_device_state, |this, _, event, cx| match event {
+            SelectEvent::Confirm(value) => {
+                info!("device selected: {:?}", value);
+                this.current_device_id = value.clone();
+                cx.notify();
+            }
+        });
 
         let iteration_count_state = cx.new(|cx| {
             InputState::new(window, cx)
@@ -73,18 +71,19 @@ impl SessionState {
                 .default_value("100")
         });
 
-        let iteration_count_input_sub = cx.subscribe_in(
-            &iteration_count_state,
-            window,
-            |this, state, event, _, cx| match event {
-                InputEvent::Change => {
-                    let text = state.read(cx).value();
-                    this.current_iteration_count = text.parse::<u32>().ok();
-                    cx.notify();
-                }
-                _ => {}
-            },
-        );
+        let iteration_count_input_sub =
+            cx.subscribe_in(
+                &iteration_count_state,
+                window,
+                |this, state, event, _, cx| match event {
+                    InputEvent::Change => {
+                        let text = state.read(cx).value();
+                        this.current_iteration_count = text.parse::<u32>().ok();
+                        cx.notify();
+                    }
+                    _ => {}
+                },
+            );
         let iteration_count_inc_sub = cx.subscribe_in(
             &iteration_count_state,
             window,
@@ -93,9 +92,7 @@ impl SessionState {
                     StepAction::Decrement => {
                         if let Some(value) = this.current_iteration_count {
                             let value = value.saturating_sub(1);
-                            state.update(cx, |input, cx| {
-                                input.set_value(format!("{value}"), window, cx)
-                            });
+                            state.update(cx, |input, cx| input.set_value(format!("{value}"), window, cx));
                             this.current_iteration_count = Some(value);
                             cx.notify();
                         }
@@ -103,9 +100,7 @@ impl SessionState {
                     StepAction::Increment => {
                         if let Some(value) = this.current_iteration_count {
                             let value = value.saturating_add(1);
-                            state.update(cx, |input, cx| {
-                                input.set_value(format!("{value}"), window, cx)
-                            });
+                            state.update(cx, |input, cx| input.set_value(format!("{value}"), window, cx));
                             this.current_iteration_count = Some(value);
                             cx.notify();
                         }
@@ -127,29 +122,20 @@ impl SessionState {
         Ok(Self {
             select_device_state,
             iteration_count_state,
-            info_state: info_state.clone(),
             source_path_state: source_file_state,
             destination_path_state: destination_dir_state,
+            grid_state: grid_state.clone(),
+            info_state: info_state.clone(),
             current_device_id: default.map(|p| p.1),
             current_source_path: None,
             current_destination_path: None,
             current_iteration_count: Some(100),
             session_status: SessionStatus::IDLE,
-            session_tracks: vec![],
-            _subscriptions: vec![
-                select_device_sub,
-                iteration_count_input_sub,
-                iteration_count_inc_sub,
-            ],
+            _subscriptions: vec![select_device_sub, iteration_count_input_sub, iteration_count_inc_sub],
         })
     }
 
-    pub fn select_source_file(
-        &mut self,
-        _: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn select_source_file(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let options = PathPromptOptions {
             files: true,
             directories: false,
@@ -167,23 +153,30 @@ impl SessionState {
                 cx.update_entity(&state.source_path_state, |view, cx| {
                     view.set_value(source_file.to_string_lossy().to_string(), window, cx);
                 });
-                cx.update_entity(&state.info_state, |view, _| {
-                    match SessionTrack::new(source_file.clone()) {
-                        Ok(track) => view.set_track(track),
-                        Err(error) => error!("failed to open source track: {}", error),
+                match WaveClip::open(source_file.clone()) {
+                    Ok(clip) => {
+                        cx.update_entity(&state.info_state, |view, cx| {
+                            view.set_clip(&clip);
+                            cx.notify()
+                        });
+                        cx.update_entity(&state.grid_state, |grid, cx| {
+                            grid.update_tracks(|tracks| {
+                                tracks.clear();
+                                let track = Track::new(clip.metadata().filename());
+                                track.add_clip(&clip, 0);
+                                tracks.push(track);
+                            });
+                            cx.notify();
+                        });
                     }
-                });
+                    Err(error) => error!("failed to open source track: {}", error),
+                }
             })
         })
         .detach();
     }
 
-    pub fn select_destination_dir(
-        &mut self,
-        _: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn select_destination_dir(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let options = PathPromptOptions {
             files: false,
             directories: true,
@@ -230,22 +223,17 @@ impl SessionState {
                 while iteration < iteration_count {
                     let (source_path, destination_path) = if iteration == 0 {
                         let source_path = source_path.clone();
-                        let destination_path =
-                            destination_path.join(format!("output_{}.wav", iteration));
+                        let destination_path = destination_path.join(format!("output_{}.wav", iteration));
                         (source_path, destination_path)
                     } else {
-                        let source_path =
-                            destination_path.join(format!("output_{}.wav", iteration - 1));
-                        let destination_path =
-                            destination_path.join(format!("output_{}.wav", iteration));
+                        let source_path = destination_path.join(format!("output_{}.wav", iteration - 1));
+                        let destination_path = destination_path.join(format!("output_{}.wav", iteration));
                         (source_path, destination_path)
                     };
                     iteration += 1;
 
                     info!("new session");
-                    let mut session =
-                        RecordSession::new(device_id, source_path, destination_path.clone())
-                            .await?;
+                    let mut session = RecordSession::new(device_id, source_path, destination_path.clone()).await?;
 
                     info!("start recording");
                     session.start().await?;
@@ -262,19 +250,28 @@ impl SessionState {
                     match session.stop().await {
                         Ok(_) => {
                             info!("successfully finished recording");
-                            let track = SessionTrack::new(destination_path)?;
+                            let clip = WaveClip::open(destination_path)?;
                             entity.update(cx, |state, cx| {
-                                state.session_tracks.push(track.clone());
-                                state.info_state.update(cx, |state, cx| {
-                                    state.set_track(track);
+                                info!("update grid_state");
+                                state.grid_state.update(cx, |grid, cx| {
+                                    grid.update_tracks(|tracks| {
+                                        let track = Track::new(clip.metadata().filename());
+                                        track.add_clip(&clip, 0);
+                                        tracks.push(track);
+                                    });
+                                    cx.notify();
                                 });
+                                info!("update info_state");
+                                state.info_state.update(cx, |state, _| {
+                                    state.set_clip(&clip);
+                                });
+                                info!("update complete");
                             })?;
                         }
                         Err(error) => {
                             error!("failed to finish recording: {error}");
                             entity.update(cx, |state, _| {
-                                state.session_status =
-                                    SessionStatus::FAILED(SharedString::new(error.to_string()));
+                                state.session_status = SessionStatus::FAILED;
                             })?;
                         }
                     };

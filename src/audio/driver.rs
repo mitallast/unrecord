@@ -4,6 +4,7 @@ use coreaudio::audio_unit::macos_helpers::{get_audio_device_ids, get_default_dev
 
 pub struct CoreAudioDriver;
 
+#[allow(dead_code)]
 impl CoreAudioDriver {
     pub fn get_default_device(&self, input: bool) -> Result<CoreAudioDevice> {
         let device_id = get_default_device_id(input) //
