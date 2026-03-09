@@ -1,10 +1,10 @@
-use crate::ui::{ClipInfoState, app_panel, app_panel_title};
+use crate::ui::ClipInfoState;
 use gpui::{
-    App, Element, Entity, IntoElement, ListAlignment, ListState, ParentElement, RenderOnce,
-    StyleRefinement, Styled, Window, div, list, px, rems,
+    App, Element, Entity, IntoElement, ListAlignment, ListState, ParentElement, RenderOnce, StyleRefinement, Styled,
+    Window, div, list, px, rems, rgb, white,
 };
+use gpui_component::StyledExt;
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::{StyledExt, gray_400};
 
 #[derive(IntoElement)]
 pub struct TrackInfoPanel {
@@ -41,12 +41,20 @@ impl RenderOnce for TrackInfoPanel {
             list_state.reset(items.len());
         }
 
-        app_panel(cx)
-            .p_4()
+        div()
+            .bg(rgb(0x474747))
             .size_full()
             .flex()
             .flex_col()
-            .child(app_panel_title().child("Track info"))
+            .child(
+                div()
+                    .bg(rgb(0x474747))
+                    .line_height(rems(3.0))
+                    .border_b_1()
+                    .border_color(rgb(0x303030))
+                    .px_4()
+                    .child("Region info"),
+            )
             .child(
                 div()
                     .size_full()
@@ -55,15 +63,17 @@ impl RenderOnce for TrackInfoPanel {
                     .child(
                         list(list_state.clone(), move |i, _, _| {
                             let item = &items[i];
+                            let bg_color = if i & 1 == 0 { rgb(0x525252) } else { rgb(0x4E4E4E) };
                             div()
                                 .w_full()
-                                .flex()
-                                .flex_row()
-                                .justify_between()
+                                .grid()
+                                .grid_cols(2)
+                                .gap(rems(1.0))
                                 .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .child(div().text_color(gray_400()).child(item.key()))
-                                .child(div().text_right().child(item.value()))
+                                .line_height(rems(1.5))
+                                .bg(bg_color)
+                                .child(div().text_right().text_color(white().alpha(0.7)).child(item.key()))
+                                .child(div().text_left().child(item.value()))
                                 .into_any()
                         })
                         .size_full(),

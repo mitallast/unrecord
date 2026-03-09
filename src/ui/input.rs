@@ -1,5 +1,5 @@
-use gpui::{Div, Styled, div, rems};
-use gpui_component::{StyledExt, gray_300, gray_500};
+use gpui::{Div, Styled, div, rems, white};
+use gpui_component::StyledExt;
 
 pub fn app_input_label() -> Div {
     div()
@@ -8,7 +8,7 @@ pub fn app_input_label() -> Div {
         .text_size(rems(0.75))
         .line_height(rems(1.0))
         .font_medium()
-        .text_color(gray_300())
+        .text_color(white().alpha(0.7))
 }
 
 pub fn app_input_text() -> Div {
@@ -16,5 +16,5 @@ pub fn app_input_text() -> Div {
         .mt_1()
         .text_size(rems(0.75))
         .line_height(rems(1.0))
-        .text_color(gray_500())
+        .text_color(white().alpha(0.5))
 }

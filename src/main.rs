@@ -11,7 +11,7 @@ use gpui::{
     App, AppContext, Application, Context, Entity, IntoElement, ParentElement, Render, Styled, Window, WindowOptions,
     div, px, rgb,
 };
-use gpui_component::{ActiveTheme, Root, gray_400};
+use gpui_component::{Root, gray_400};
 use gpui_component_assets::Assets;
 
 fn main() -> Result<()> {
@@ -25,12 +25,11 @@ fn main() -> Result<()> {
             theme.radius = px(8.0);
 
             // window background
-            theme.colors.tiles = rgb(0x1B1C1F).into();
-
-            theme.colors.background = rgb(0x1F2126).into();
-            theme.colors.muted = rgb(0x1F2126).into();
+            theme.colors.background = rgb(0x333333).into();
+            theme.colors.muted = rgb(0x393939).into();
             theme.colors.foreground = rgb(0xF5F5F7).into();
             theme.colors.sidebar = rgb(0x2A2C31).into();
+            theme.colors.accent = rgb(0x3492ff).into();
 
             theme.colors.secondary_hover = rgb(0x3b3f47).into();
             theme.colors.secondary_active = rgb(0x454a54).into();
@@ -41,7 +40,7 @@ fn main() -> Result<()> {
             theme.colors.primary_foreground = theme.colors.foreground;
 
             theme.colors.border = rgb(0x3A3D44).into();
-            theme.colors.input = rgb(0x434853).into();
+            theme.colors.input = rgb(0x393939).into();
             theme.colors.slider_bar = gray_400();
             theme.colors.slider_thumb = rgb(0x1f2126).into();
             theme.colors.table_head = rgb(0x24272d).into();
@@ -88,13 +87,10 @@ impl UnrecordApp {
 
 impl Render for UnrecordApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-
         div()
             .size_full()
-            .p_4()
-            .gap_4()
-            .bg(theme.tiles)
+            .gap(px(2.0))
+            .bg(rgb(0x141414))
             .flex()
             .flex_row()
             .child(
@@ -104,7 +100,7 @@ impl Render for UnrecordApp {
                     .flex()
                     .flex_col()
                     .flex_nowrap()
-                    .gap_4()
+                    .gap(px(2.0))
                     .child(SessionPanel::new(&self.session))
                     .child(TrackInfoPanel::new(&self.info)),
             )

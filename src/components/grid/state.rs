@@ -50,7 +50,7 @@ impl GridState {
         });
 
         let state = Self {
-            tracks: Arc::new(Mutex::new(Vec::new())),
+            tracks: Arc::new(Mutex::new(random_tracks())),
             viewport: GridViewport::new(sample_rate),
             x_slider,
             y_slider,

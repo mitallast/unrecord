@@ -1,16 +1,8 @@
-use gpui::{App, Div, Styled, div, px, rems};
-use gpui_component::{ActiveTheme, StyledExt, gray_400};
-
-pub fn app_panel(cx: &App) -> Div {
-    let theme = cx.theme();
-    div().rounded_xl().bg(theme.sidebar).border(px(1.0))
-}
+use gpui::{Div, Styled, div, rems};
+use gpui_component::{StyledExt, gray_400};
 
 pub fn app_panel_title() -> Div {
-    div()
-        .text_size(rems(1.0))
-        .line_height(rems(1.5))
-        .font_semibold()
+    div().text_size(rems(1.0)).line_height(rems(1.5)).font_semibold()
 }
 
 pub fn app_panel_text() -> Div {
